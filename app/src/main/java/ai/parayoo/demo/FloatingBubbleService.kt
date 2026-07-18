@@ -271,9 +271,8 @@ class FloatingBubbleService : Service() {
             })
         }
         val resultParams = overlayParams(280, WindowManager.LayoutParams.WRAP_CONTENT).apply {
-            gravity = Gravity.TOP or Gravity.END
-            x = bubbleParams.x
-            y = bubbleParams.y + dp(80)
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            y = dp(48)
         }
         windowManager.addView(resultCard, resultParams)
         mainHandler.postDelayed({ dismissResult() }, RESULT_DISMISS_MS)
