@@ -5,6 +5,7 @@ import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.AudioFormat
 import android.media.AudioRecord
@@ -12,6 +13,8 @@ import android.media.MediaRecorder
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.net.Uri
+import android.provider.Settings
 import android.view.View
 import android.widget.Button
 import android.widget.TextView
@@ -33,6 +36,7 @@ class MainActivity : Activity() {
     private val networkExecutor = Executors.newSingleThreadExecutor()
 
     private lateinit var recordButton: Button
+    private lateinit var bubbleButton: Button
     private lateinit var copyButton: Button
     private lateinit var sampleButton: Button
     private lateinit var statusText: TextView
@@ -42,12 +46,15 @@ class MainActivity : Activity() {
     private var recorder: AudioRecord? = null
     private var recordingThread: Thread? = null
     private var audioFile: File? = null
+    private var waitingForOverlayPermission = false
+    private var waitingForMicrophoneForBubble = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
         recordButton = findViewById(R.id.recordButton)
+        bubbleButton = findViewById(R.id.bubbleButton)
         copyButton = findViewById(R.id.copyButton)
         sampleButton = findViewById(R.id.sampleButton)
         statusText = findViewById(R.id.statusText)
@@ -56,10 +63,46 @@ class MainActivity : Activity() {
         recordButton.setOnClickListener {
             if (isRecording) stopRecordingAndTranscribe() else requestMicAndStart()
         }
+        bubbleButton.setOnClickListener { enableBubble() }
         copyButton.setOnClickListener { copyResult() }
         sampleButton.setOnClickListener {
             showResult("njan ippol varam, kurachu wait cheyyu", "Backup demo result shown.")
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (waitingForOverlayPermission && Settings.canDrawOverlays(this)) {
+            waitingForOverlayPermission = false
+            startBubbleService()
+        }
+    }
+
+    private fun enableBubble() {
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            waitingForMicrophoneForBubble = true
+            statusText.text = "Allow microphone permission first, then enable the bubble."
+            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_MIC_PERMISSION)
+            return
+        }
+        if (!Settings.canDrawOverlays(this)) {
+            waitingForOverlayPermission = true
+            statusText.text = "Allow “Display over other apps” for Parayoo."
+            startActivity(
+                Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:$packageName")
+                )
+            )
+            return
+        }
+        startBubbleService()
+    }
+
+    private fun startBubbleService() {
+        startForegroundService(Intent(this, FloatingBubbleService::class.java))
+        statusText.text = "Floating bubble enabled. You can leave the app."
+        bubbleButton.text = "Floating bubble is running"
     }
 
     private fun requestMicAndStart() {
@@ -79,8 +122,14 @@ class MainActivity : Activity() {
         if (requestCode == REQUEST_MIC_PERMISSION &&
             grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED
         ) {
-            startRecording()
+            if (waitingForMicrophoneForBubble) {
+                waitingForMicrophoneForBubble = false
+                enableBubble()
+            } else {
+                startRecording()
+            }
         } else if (requestCode == REQUEST_MIC_PERMISSION) {
+            waitingForMicrophoneForBubble = false
             statusText.text = "Microphone permission is required to record."
         }
     }
