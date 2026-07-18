@@ -1,5 +1,8 @@
 package ai.parayoo.demo
 
+import android.animation.ObjectAnimator
+import android.animation.PropertyValuesHolder
+import android.animation.ValueAnimator
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -30,10 +33,11 @@ class FloatingBubbleService : Service() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val networkExecutor = Executors.newSingleThreadExecutor()
     private lateinit var windowManager: WindowManager
-    private lateinit var bubble: TextView
+    private lateinit var bubble: VoiceBubbleView
     private var resultCard: LinearLayout? = null
     private lateinit var bubbleParams: WindowManager.LayoutParams
     private var recorder: WavRecorder? = null
+    private var pulseAnimator: ObjectAnimator? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -80,12 +84,8 @@ class FloatingBubbleService : Service() {
     }
 
     private fun showBubble() {
-        bubble = TextView(this).apply {
-            gravity = Gravity.CENTER
-            text = "🎙"
-            textSize = 28f
-            setTextColor(Color.WHITE)
-            background = ovalBackground("#1565C0")
+        bubble = VoiceBubbleView(this).apply {
+            state = VoiceBubbleView.State.IDLE
             contentDescription = "Parayoo record bubble"
             setOnTouchListener(BubbleTouchListener())
         }
@@ -124,7 +124,7 @@ class FloatingBubbleService : Service() {
                     return true
                 }
                 MotionEvent.ACTION_UP -> {
-                    if (!moved) onBubbleTapped()
+                    if (moved) snapBubbleToEdge() else onBubbleTapped()
                     return true
                 }
             }
@@ -142,14 +142,20 @@ class FloatingBubbleService : Service() {
 
     private fun startRecording() {
         dismissResult()
-        val wavRecorder = WavRecorder(cacheDir)
+        val wavRecorder = WavRecorder(cacheDir) { level ->
+            mainHandler.post {
+                if (::bubble.isInitialized && recorder?.isRecording() == true) {
+                    bubble.amplitude = level
+                }
+            }
+        }
         if (!wavRecorder.start()) {
             showResult("Could not start microphone.", false)
             return
         }
         recorder = wavRecorder
-        bubble.text = "■"
-        bubble.background = ovalBackground("#D32F2F")
+        bubble.state = VoiceBubbleView.State.LISTENING
+        startPulseAnimation()
         mainHandler.postDelayed(autoStop, MAX_RECORDING_MS)
     }
 
@@ -161,8 +167,8 @@ class FloatingBubbleService : Service() {
         mainHandler.removeCallbacks(autoStop)
         val audioFile = recorder?.stop()
         recorder = null
-        bubble.text = "…"
-        bubble.background = ovalBackground("#F59E0B")
+        stopPulseAnimation()
+        bubble.state = VoiceBubbleView.State.PROCESSING
         if (audioFile == null) {
             showResult("No audio captured. Try again.", false)
             resetBubble()
@@ -191,8 +197,47 @@ class FloatingBubbleService : Service() {
     }
 
     private fun resetBubble() {
-        bubble.text = "🎙"
-        bubble.background = ovalBackground("#1565C0")
+        stopPulseAnimation()
+        bubble.state = VoiceBubbleView.State.IDLE
+        bubble.amplitude = 0f
+    }
+
+    private fun startPulseAnimation() {
+        pulseAnimator?.cancel()
+        pulseAnimator = ObjectAnimator.ofPropertyValuesHolder(
+            bubble,
+            PropertyValuesHolder.ofFloat(View.SCALE_X, 1f, 1.16f),
+            PropertyValuesHolder.ofFloat(View.SCALE_Y, 1f, 1.16f)
+        ).apply {
+            duration = 550
+            repeatCount = ValueAnimator.INFINITE
+            repeatMode = ValueAnimator.REVERSE
+            start()
+        }
+    }
+
+    private fun stopPulseAnimation() {
+        pulseAnimator?.cancel()
+        pulseAnimator = null
+        if (::bubble.isInitialized) {
+            bubble.animate().scaleX(1f).scaleY(1f).setDuration(160).start()
+        }
+    }
+
+    private fun snapBubbleToEdge() {
+        val screenWidth = resources.displayMetrics.widthPixels
+        val targetX = if (bubbleParams.x > screenWidth / 2) screenWidth - dp(92) else dp(20)
+        ValueAnimator.ofInt(bubbleParams.x, targetX).apply {
+            duration = 220
+            addUpdateListener {
+                bubbleParams.x = it.animatedValue as Int
+                runCatching { windowManager.updateViewLayout(bubble, bubbleParams) }
+            }
+            start()
+        }
+        bubble.animate().scaleX(1.08f).scaleY(1.08f).setDuration(110).withEndAction {
+            bubble.animate().scaleX(1f).scaleY(1f).setDuration(110).start()
+        }.start()
     }
 
     private fun showResult(message: String, canCopy: Boolean) {
@@ -264,6 +309,7 @@ class FloatingBubbleService : Service() {
 
     override fun onDestroy() {
         mainHandler.removeCallbacks(autoStop)
+        pulseAnimator?.cancel()
         recorder?.release()
         dismissResult()
         if (::bubble.isInitialized) runCatching { windowManager.removeView(bubble) }

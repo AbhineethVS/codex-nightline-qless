@@ -9,7 +9,10 @@ import java.io.FileOutputStream
 import java.io.RandomAccessFile
 import kotlin.concurrent.thread
 
-class WavRecorder(private val cacheDirectory: File) {
+class WavRecorder(
+    private val cacheDirectory: File,
+    private val onAmplitude: (Float) -> Unit = {}
+) {
     @Volatile private var recording = false
     private var recorder: AudioRecord? = null
     private var recordingThread: Thread? = null
@@ -42,7 +45,7 @@ class WavRecorder(private val cacheDirectory: File) {
         recording = true
         audioRecord.startRecording()
         recordingThread = thread(name = "ParayooAudio") {
-            writeRecording(audioRecord, destination!!, minBuffer)
+            writeRecording(audioRecord, destination!!, AMPLITUDE_INTERVAL_BYTES)
         }
         return true
     }
@@ -72,6 +75,7 @@ class WavRecorder(private val cacheDirectory: File) {
                     if (bytesRead > 0) {
                         output.write(buffer, 0, bytesRead)
                         dataBytes += bytesRead
+                        onAmplitude(calculateAmplitude(buffer, bytesRead))
                     }
                 }
             }
@@ -80,6 +84,17 @@ class WavRecorder(private val cacheDirectory: File) {
                 it.write(wavHeader(dataBytes))
             }
         }
+    }
+
+    private fun calculateAmplitude(buffer: ByteArray, length: Int): Float {
+        var peak = 0
+        var index = 0
+        while (index + 1 < length) {
+            val sample = (buffer[index].toInt() and 0xFF) or (buffer[index + 1].toInt() shl 8)
+            peak = maxOf(peak, kotlin.math.abs(sample.toShort().toInt()))
+            index += 2
+        }
+        return peak / 32_768f
     }
 
     private fun wavHeader(dataBytes: Int): ByteArray {
@@ -116,6 +131,8 @@ class WavRecorder(private val cacheDirectory: File) {
 
     private companion object {
         const val SAMPLE_RATE = 16_000
+        // 16-bit mono PCM: 1,600 bytes equals 50 ms at 16 kHz.
+        const val AMPLITUDE_INTERVAL_BYTES = 1_600
         const val WAV_HEADER_SIZE = 44
     }
 }
