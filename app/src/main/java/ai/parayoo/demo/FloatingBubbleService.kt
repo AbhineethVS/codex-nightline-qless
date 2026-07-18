@@ -103,6 +103,12 @@ class FloatingBubbleService : Service() {
         private var startX = 0
         private var startY = 0
         private var moved = false
+        private var longPressed = false
+        private val removeBubble = Runnable {
+            longPressed = true
+            Toast.makeText(this@FloatingBubbleService, "Parayoo bubble removed", Toast.LENGTH_SHORT).show()
+            stopSelf()
+        }
 
         override fun onTouch(view: View, event: MotionEvent): Boolean {
             when (event.action) {
@@ -112,19 +118,27 @@ class FloatingBubbleService : Service() {
                     startX = bubbleParams.x
                     startY = bubbleParams.y
                     moved = false
+                    longPressed = false
+                    mainHandler.postDelayed(removeBubble, LONG_PRESS_REMOVE_MS)
                     return true
                 }
                 MotionEvent.ACTION_MOVE -> {
                     val deltaX = event.rawX.toInt() - downX
                     val deltaY = event.rawY.toInt() - downY
                     moved = moved || kotlin.math.abs(deltaX) > 12 || kotlin.math.abs(deltaY) > 12
+                    if (moved) mainHandler.removeCallbacks(removeBubble)
                     bubbleParams.x = startX - deltaX
                     bubbleParams.y = startY + deltaY
                     windowManager.updateViewLayout(bubble, bubbleParams)
                     return true
                 }
                 MotionEvent.ACTION_UP -> {
-                    if (moved) snapBubbleToEdge() else onBubbleTapped()
+                    mainHandler.removeCallbacks(removeBubble)
+                    if (moved) snapBubbleToEdge() else if (!longPressed) onBubbleTapped()
+                    return true
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    mainHandler.removeCallbacks(removeBubble)
                     return true
                 }
             }
@@ -321,5 +335,6 @@ class FloatingBubbleService : Service() {
         const val NOTIFICATION_ID = 11
         const val MAX_RECORDING_MS = 15_000L
         const val RESULT_DISMISS_MS = 10_000L
+        const val LONG_PRESS_REMOVE_MS = 900L
     }
 }
