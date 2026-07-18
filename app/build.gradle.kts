@@ -38,6 +38,11 @@ android {
             "SARVAM_API_KEY",
             "\"${localProperties.getProperty("SARVAM_API_KEY", "")}\""
         )
+        buildConfigField(
+            "String",
+            "OPENAI_API_KEY",
+            "\"${localProperties.getProperty("OPENAI_API_KEY", "")}\""
+        )
     }
 }
 

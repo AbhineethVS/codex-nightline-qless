@@ -17,6 +17,7 @@ import android.net.Uri
 import android.provider.Settings
 import android.view.View
 import android.widget.Button
+import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import org.json.JSONObject
@@ -37,6 +38,7 @@ class MainActivity : Activity() {
 
     private lateinit var recordButton: Button
     private lateinit var bubbleButton: Button
+    private lateinit var polishSwitch: Switch
     private lateinit var copyButton: Button
     private lateinit var sampleButton: Button
     private lateinit var statusText: TextView
@@ -55,6 +57,7 @@ class MainActivity : Activity() {
 
         recordButton = findViewById(R.id.recordButton)
         bubbleButton = findViewById(R.id.bubbleButton)
+        polishSwitch = findViewById(R.id.polishSwitch)
         copyButton = findViewById(R.id.copyButton)
         sampleButton = findViewById(R.id.sampleButton)
         statusText = findViewById(R.id.statusText)
@@ -64,6 +67,10 @@ class MainActivity : Activity() {
             if (isRecording) stopRecordingAndTranscribe() else requestMicAndStart()
         }
         bubbleButton.setOnClickListener { enableBubble() }
+        polishSwitch.isChecked = PolishMode.isEnabled(this)
+        polishSwitch.setOnCheckedChangeListener { _, enabled ->
+            PolishMode.setEnabled(this, enabled)
+        }
         copyButton.setOnClickListener { copyResult() }
         sampleButton.setOnClickListener {
             showResult("njan ippol varam, kurachu wait cheyyu", "Backup demo result shown.")
@@ -204,8 +211,20 @@ class MainActivity : Activity() {
         networkExecutor.execute {
             try {
                 val transcript = transcribeWithSarvam(file)
+                val result = if (PolishMode.isEnabled(this@MainActivity)) {
+                    runCatching { OpenAiPolisher.polish(transcript) }.getOrDefault(transcript)
+                } else {
+                    transcript
+                }
                 mainHandler.post {
-                    showResult(transcript, "Converted with Sarvam transliteration.")
+                    showResult(
+                        result,
+                        if (PolishMode.isEnabled(this@MainActivity)) {
+                            "Converted with Sarvam and Polish Mode."
+                        } else {
+                            "Converted with Sarvam transliteration."
+                        }
+                    )
                     recordButton.isEnabled = true
                 }
             } catch (error: Exception) {

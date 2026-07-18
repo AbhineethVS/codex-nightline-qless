@@ -1,2 +1,3 @@
-## Copy this file to local.properties, then add your key. Do not commit local.properties.
+## Copy this file to local.properties, then add your keys. Do not commit local.properties.
 SARVAM_API_KEY=replace_with_your_sarvam_key
+OPENAI_API_KEY=replace_with_your_openai_key

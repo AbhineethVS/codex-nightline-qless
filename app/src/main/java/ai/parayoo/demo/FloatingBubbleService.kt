@@ -196,7 +196,12 @@ class FloatingBubbleService : Service() {
 
         networkExecutor.execute {
             try {
-                val result = SarvamClient.transliterate(audioFile)
+                val sarvamResult = SarvamClient.transliterate(audioFile)
+                val result = if (PolishMode.isEnabled(this@FloatingBubbleService)) {
+                    runCatching { OpenAiPolisher.polish(sarvamResult) }.getOrDefault(sarvamResult)
+                } else {
+                    sarvamResult
+                }
                 mainHandler.post {
                     showResult(result, true)
                     resetBubble()
